@@ -1,0 +1,27 @@
+settings:
+  # root_dir: "./datasets/celeba/images/" #previously ued for celebA dataset
+  root_dir: "./datasets/Dataset1-David-baseline/train/"
+  checkpoint_path: "weights"
+  sample_folder: "sample"
+
+  #cuda: True
+  lr: 0.001
+  batch_size: 4
+  num_workers: 4
+
+  step_iters: [50000, 75000, 100000]
+  gamma: 0.1
+
+  d_num_layers: 3
+
+  visualize_per_iter: 1
+  save_per_iter: 1
+  print_per_iter: 1
+  num_epochs: 25
+
+  lambda_G: 1.0
+  lambda_rc: 100.0
+  lambda_per: 10.0
+
+  img_size: 512
+
