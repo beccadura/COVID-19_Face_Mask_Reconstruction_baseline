@@ -1,90 +1,46 @@
-# Inpainting the Masked Face using Gated Convolution + PatchGAN (Pytorch)
+# Face Mask Reconstruction (Baseline Model)
+## Authors: Becca Dura, David Kinney, Linda Kopecky, & Evgeni Radichev
 
-## Environments
-- Windows 10
-- Pytorch 1.6
+## celeba data was prepared as follows:
 
-## CelebA data preparation:
+  - Downloaded CelebA dataset (https://www.kaggle.com/jessicali9530/celeba-dataset) then cropped the image to 512x512 pixels
+  - Reduced size of dataset, as model takes a while to train
+  - Created synthetic face mask and binary image on the cropped set with code adapted from: https://github.com/aqeelanwar/MaskTheFace
 
-  - Download CelebA dataset then crop the image while keeping ratio with [here](https://github.com/LynnHo/HD-CelebA-Cropper)
-  - Create synthesis facemask segmentation dataset on the cropped set with [here](https://github.com/aqeelanwar/MaskTheFace) 
-  **(orginal code does not provide binary masks, add it yourself)**
+## Dataset1-David-baseline data was prepared as follows:
+
+  - Split training and testing videos into images (1 frame per second)
+  - Reduced size of training dataset, as model takes a while to train
+  - Cropped images to be 512x512 pixels
+  - Created synthetic face mask and binary image on the cropped set with code adapted from: https://github.com/aqeelanwar/MaskTheFace
   
-  ![](./sample/facemask.png)
-  
-  - Folder structure:
-  ```
-  this repo
-  │   train.py
-  │   trainer.py
-  │   unet_trainer.py
-  │
-  └───configs
-  │      facemask.yaml
-  │      segm.yaml
-  │
-  └───datasets  
-  │   └───celeba
-  │       └───images
-  │           └───celeba512_30k
-  │           └───celeba512_30k_binary
-  │           └───celeba512_30k_masked
-  │       └───annotations
-  │           |  train.csv
-  │           |  val.csv
-  ```
-  - Put unmasked images in ```celeba512_30k```, facemasked images in ```celeba512_30k_masked```, and binary masks in ```celeba512_30k_binary```
-  - Split train/validation then save filepaths to .csv. Example:
-      ```
-      ,img_name,mask_name
-      0,celeba512_30k_masked\012653_masked.jpg,celeba512_30k_binary\012653_binary.jpg
-      1,celeba512_30k_masked\016162_masked.jpg,celeba512_30k_binary\016162_binary.jpg
-      2,celeba512_30k_masked\011913_masked.jpg,celeba512_30k_binary\011913_binary.jpg
-      ```
-  - Edit configs on both ***segm.yaml*** and ***facemask.yaml***
-  - **Follow the same steps above when applying custom dataset**
-  
-## Training steps:
-- Train segmentation model in ***unet_trainer.py***
-- Train inpainting model in ***trainer.py***
-- Using ***infer.py*** with 2 checkpoints from above tasks to do inference
+## Training Steps:
+- Train segmentation model in ***segmentation_trainer.py***.
+- Train reconstruction model in ***reconstruction_trainer.py***.
+- Use ***infer.py*** with final weights files from training the segmentation and reconstruction models to make predictions.
 
-## Train facemask segmentation
+## Train Face Mask Segmentation Model
 
 ```
-python train.py segm --resume=<resume checkpoint>
+python3 train.py segm
 ```
 
-## Train facemask inpainting
+## Train Face Mask Reconstruction Model
 
 ```
-python train.py facemask --resume=<resume checkpoint>
+python3 train.py facemask
 ```
 
-## Results (100,000 iterations with batch size = 2):
-| | |
-|:-------------------------:|:-------------------------:|
-|<img width="900" alt="screen" src="sample/results1.png"> | <img width="900" alt="screen" src="sample/results2.png"> |
 
-<p align="center">
-Inpainting results on Masked CelebA-512 (from left to right: FaceMasked - Segmented - Inpainted - Ground Truth)
-</p>
+## Predict Image Outputs 
+#### (prints comparison with masked image, binary image overlayed over masked image, reconstructed image, & ground truth)
 
-| | |
-|:-------------------------:|:-------------------------:|
-|<img width="900" alt="screen" src="sample/results3.png"> | <img width="900" alt="screen" src="sample/reesults4.png"> |
-
-<p align="center">
-Free-Form Inpainting results on Places365-256 (from left to right: Ground Truth - Masked - Inpainted )
-</p>
+```
+python3 infer.py
+```
 
 ## Paper References:
-- Idea and training process from [A Novel GAN-Based Network for Unmasking of Masked Face](https://ieeexplore.ieee.org/abstract/document/9019697)
-- Base model from [Free-Form Image Inpainting with Gated Convolution](https://arxiv.org/abs/1806.03589)
+- Model based off the following paper: [A Novel GAN-Based Network for Unmasking of Masked Face](https://ieeexplore.ieee.org/abstract/document/9019697)
 
 ## Code References
-- Generator from https://github.com/zhaoyuzhi/deepfillv2
-- Discriminator from https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix
-- https://github.com/avalonstrel/GatedConvolution_pytorch
-- https://github.com/LynnHo/HD-CelebA-Cropper
-- https://github.com/aqeelanwar/MaskTheFace
+- Folder structure and some code adapted from: https://github.com/kaylode/image-inpainting/tree/dff72fa655986f9b8776eb2df28ab8f3e06aa0f6
