@@ -37,10 +37,11 @@ def get_epoch_iters(path):
 
     return epoch_idx, iter_idx
 
-def load_checkpoint(model_G, model_D, path):
+def load_checkpoint(model_G, model_D, model_D2, path):
     state = torch.load(path,map_location='cpu')
     model_G.load_state_dict(state['G'])
     model_D.load_state_dict(state['D'])
+    model_D2.load_state_dict(state['D2'])
     print('Loaded checkpoint successfully')
 
 class Reconstruction_Trainer():
@@ -85,10 +86,11 @@ class Reconstruction_Trainer():
 
         self.model_G = UNetSemantic2().to(self.device)
         self.model_D = NLayerDiscriminator(cfg.d_num_layers, use_sigmoid=False).to(self.device)
+        self.model_D2 = NLayerDiscriminator(cfg.d_num_layers, use_sigmoid=False).to(self.device)
         self.model_P = PerceptualNet(name = "vgg19", resize=False).to(self.device)
 
         if args.resume is not None:
-            load_checkpoint(self.model_G, self.model_D, args.resume)
+            load_checkpoint(self.model_G, self.model_D, self.model_D2, args.resume)
 
         self.criterion_adv = GANLoss(target_real_label=0.9, target_fake_label=0.1)
         self.criterion_rec = nn.SmoothL1Loss()
@@ -96,6 +98,7 @@ class Reconstruction_Trainer():
         self.criterion_per = nn.SmoothL1Loss()
 
         self.optimizer_D = torch.optim.Adam(self.model_D.parameters(), lr=cfg.lr)
+        self.optimizer_D2 = torch.optim.Adam(self.model_D2.parameters(), lr=cfg.lr)
         self.optimizer_G = torch.optim.Adam(self.model_G.parameters(), lr=cfg.lr)
 
     def validate(self, sample_folder, sample_name, img_list):
@@ -110,13 +113,15 @@ class Reconstruction_Trainer():
     def fit(self):
         self.model_G.train()
         self.model_D.train()
+        self.model_D2.train()
 
         running_loss = {
             'D': 0,
+            'D2': 0,
             'G': 0,
             'P': 0,
-            'R': 0,
-            'Total': 0,
+            'RC': 0,
+            'RC+P': 0,
         }
 
         running_time = 0
@@ -130,7 +135,7 @@ class Reconstruction_Trainer():
                     masks = batch['masks'].to(self.device)
                     ground_truth = batch['ground_truth'].to(self.device)
 
-                    # Train discriminator
+                    # Train whole discriminator
                     self.optimizer_D.zero_grad()
                     self.optimizer_G.zero_grad()
                     
@@ -151,22 +156,40 @@ class Reconstruction_Trainer():
                     loss_D.backward()
                     self.optimizer_D.step()
 
-                    real_D = None
+                    # Train face mask discriminator
+                    self.optimizer_D2.zero_grad()
+    
+                    masks = masks.cpu()
+
+                    masked_output = whole_image_output.detach()
+
+                    fake_D2 = self.model_D2(masked_output * masks)
+                    real_D2 = self.model_D2(imgs * masks)
+
+                    loss_fake_D2 = self.criterion_adv(fake_D2, target_is_real=False)
+                    loss_real_D2 = self.criterion_adv(real_D2, target_is_real=True)
+
+                    loss_D2 = (loss_fake_D2 + loss_real_D2) * 0.5
+
+                    loss_D2.backward()
+                    self.optimizer_D2.step()
+
+                    real_D2 = None
 
                     # Train Generator
-                    self.optimizer_D.zero_grad()
+                    # self.optimizer_D.zero_grad()
                     self.optimizer_G.zero_grad()
 
-                    fake_D = self.model_D(whole_image_output)
+                    # fake_D = self.model_D(whole_image_output)
                     loss_G = self.criterion_adv(fake_D, target_is_real=True)
 
-                    fake_D = None
+                    # fake_D = None
                     
                     # Reconstruction loss
                     loss_l1 = self.criterion_rec(whole_image_output, ground_truth)
                     loss_ssim = self.criterion_ssim(whole_image_output, ground_truth)
 
-                    loss_rc = 0.5 * loss_l1 + 0.5 * (1 - loss_ssim)
+                    loss_rc = loss_l1 + (1 - loss_ssim)
 
                     # Perceptual loss
                     loss_P  = self.model_P(whole_image_output, ground_truth)                          
@@ -181,10 +204,11 @@ class Reconstruction_Trainer():
                     imgs = imgs.cpu()
                     running_time += (end_time - start_time)
                     running_loss['D'] += loss_D.item()
+                    running_loss['D2'] += loss_D2.item()
                     running_loss['G'] += (self.cfg.lambda_G * loss_G.item())
                     running_loss['P'] += (self.cfg.lambda_per * loss_P.item())
-                    running_loss['R'] += (self.cfg.lambda_rc * loss_rc.item())
-                    running_loss['Total'] += loss.item()
+                    running_loss['RC'] += (self.cfg.lambda_rc * loss_rc.item())
+                    running_loss['RC+P'] += loss.item()
                     
 
                     if self.iters % self.print_per_iter == 0:
@@ -196,22 +220,25 @@ class Reconstruction_Trainer():
                         
                         running_loss = {
                             'D': 0,
+                            'D2': 0,
                             'G': 0,
                             'P': 0,
-                            'R': 0,
-                            'Total': 0,
+                            'RC': 0,
+                            'RC+P': 0,
                         }
                         running_time = 0
                 
                     if self.iters % self.save_per_iter  == 0:
                         torch.save({
                             'D': self.model_D.state_dict(),
+                            'D2': self.model_D2.state_dict(),
                             'G': self.model_G.state_dict(),
                         }, os.path.join(self.cfg.checkpoint_path, f"model_{self.epoch}_{self.iters}.pth"))
 
                     # Step learning rate
                     if self.iters == self.step_iters[step]:
                         adjust_learning_rate(self.optimizer_D, self.gamma)
+                        adjust_learning_rate(self.optimizer_D2, self.gamma)
                         adjust_learning_rate(self.optimizer_G, self.gamma)
                         step+=1
                
@@ -228,7 +255,8 @@ class Reconstruction_Trainer():
         except KeyboardInterrupt:
                 torch.save({
                     'D': self.model_D.state_dict(),
+                    'D2': self.model_D2.state_dict(),
                     'G': self.model_G.state_dict(),
                 }, os.path.join(self.cfg.checkpoint_path, f"model_{self.epoch}_{self.iters}.pth"))
                     
-        
+ 
